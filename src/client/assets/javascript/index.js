@@ -72,32 +72,56 @@ async function delay(ms) {
 }
 // ^ PROVIDED CODE ^ DO NOT REMOVE
 
+const updateStore = (store, newState) => {
+    store = Object.assign(store, newState)
+}
+
 // This async function controls the flow of the race, add the logic and error handling
 async function handleCreateRace() {
-	// render starting UI
-	renderAt('#race', renderRaceStartView())
-
+	if ( store.player_id === undefined || 
+		 store.track_id === undefined ) {
+			alert('Please select Track and Racer before start race!');
+			return;
+	}
+	
 	// TODO - Get player_id and track_id from the store
 	
 	// const race = TODO - invoke the API call to create the race, then save the result
+	try {
 
-	// TODO - update the store with the race id
+		await createRace(store.player_id, store.track_id)
+		.then(race => {
+			// TODO - update the store with the race id
+			updateStore(store, { race_id: race.ID -1 })
+			// render starting UI
+			const html = renderRaceStartView(race.Track)
+			renderAt('#race', html)
+		})
 
-	// The race has been created, now start the countdown
-	// TODO - call the async function runCountdown
+		// The race has been created, now start the countdown
+		// TODO - call the async function runCountdown
+		await runCountdown()
+		
+		// TODO - call the async function startRace
+		await startRace(store.race_id)
+		
+		// TODO - call the async function runRace
+		await runRace(store.race_id)
+		.catch(err => console.log('not possible to run race!',err))
+	} catch (error) {
+		console.error(error)
+		
+	}
 
-	// TODO - call the async function startRace
-
-	// TODO - call the async function runRace
 }
 
-function runRace(raceID) {
-	return new Promise(resolve => {
+async function runRace(raceID) {	
+	return new Promise((resolve, reject) => {
 	// TODO - use Javascript's built in setInterval method to get race info every 500ms
 
 	/* 
-		TODO - if the race info status property is "in-progress", update the leaderboard by calling:
-
+		TODO - if the race info status property is "in-progress", 
+		update the leaderboard by calling:
 		renderAt('#leaderBoard', raceProgress(res.positions))
 	*/
 
@@ -108,6 +132,28 @@ function runRace(raceID) {
 		renderAt('#race', resultsView(res.positions)) // to render the results view
 		reslove(res) // resolve the promise
 	*/
+	const raceInterval = setInterval(() => {
+		getRace(store.race_id)
+		.then(result => {
+			if (result.status === 'in-progress') {
+				renderAt('#leaderBoard', raceProgress(result.positions))
+			} 
+			
+			if (result.status === 'finished') {
+				clearInterval(raceInterval) // to stop the interval from repeating
+				renderAt('#race', resultsView(result.positions)) // to render the results view
+				resolve(result) // resolve the promise
+			} 
+
+			if (result.status === 'unstarted') {
+				clearInterval(raceInterval) 
+				reject('Race unstarted!!!!')
+			}
+
+		})
+		.catch(err => console.log(err))
+
+	}, 500)
 	})
 	// remember to add error handling for the Promise
 }
@@ -119,13 +165,21 @@ async function runCountdown() {
 		let timer = 3
 
 		return new Promise(resolve => {
-			// TODO - use Javascript's built in setInterval method to count down once per second
+			// TODO - use Javascript's built in setInterval method to count down 
+			//once per second
+			const contDownIntId = setInterval(() => {
 
-			// run this DOM manipulation to decrement the countdown for the user
-			document.getElementById('big-numbers').innerHTML = --timer
-
-			// TODO - if the countdown is done, clear the interval, resolve the promise, and return
-
+				if (timer) {
+					// run this DOM manipulation to decrement the countdown for the user
+					document.getElementById('big-numbers').innerHTML = --timer
+					
+				} else {
+					// TODO - if the countdown is done, clear the interval, resolve the promise, 
+					//and return
+					clearInterval(contDownIntId)
+					resolve('CONTDOWN Ends!!')
+				}	
+			}, 1000);
 		})
 	} catch(error) {
 		console.log(error);
@@ -133,8 +187,6 @@ async function runCountdown() {
 }
 
 function handleSelectPodRacer(target) {
-	console.log("selected a pod", target.id)
-
 	// remove class selected from all racer options
 	const selected = document.querySelector('#racers .selected')
 	if(selected) {
@@ -145,11 +197,10 @@ function handleSelectPodRacer(target) {
 	target.classList.add('selected')
 
 	// TODO - save the selected racer to the store
+	updateStore(store, { player_id: parseInt(target.id) })
 }
 
 function handleSelectTrack(target) {
-	console.log("selected a track", target.id)
-
 	// remove class selected from all track options
 	const selected = document.querySelector('#tracks .selected')
 	if(selected) {
@@ -160,12 +211,16 @@ function handleSelectTrack(target) {
 	target.classList.add('selected')
 
 	// TODO - save the selected track id to the store
+	updateStore(store, { track_id: parseInt(target.id) })
 	
 }
 
 function handleAccelerate() {
-	console.log("accelerate button clicked")
 	// TODO - Invoke the API call to accelerate
+	if (store.player_id !== undefined) {
+		accelerate(store.race_id)
+		.catch(err => console.log('handleAccelerate() error!: ', err))
+	}
 }
 
 // HTML VIEWS ------------------------------------------------
@@ -177,12 +232,10 @@ function renderRacerCars(racers) {
 			<h4>Loading Racers...</4>
 		`
 	}
-
 	const results = racers.map(renderRacerCard).join('')
-
 	return `
 		<ul id="racers">
-			${reuslts}
+			${results}
 		</ul>
 	`
 }
@@ -206,9 +259,7 @@ function renderTrackCards(tracks) {
 			<h4>Loading Tracks...</4>
 		`
 	}
-
 	const results = tracks.map(renderTrackCard).join('')
-
 	return `
 		<ul id="tracks">
 			${results}
@@ -236,7 +287,7 @@ function renderCountdown(count) {
 function renderRaceStartView(track, racers) {
 	return `
 		<header>
-			<h1>Race: ${track.name}</h1>
+			<h1>Race: Track ${store.track_id}</h1>
 		</header>
 		<main id="two-columns">
 			<section id="leaderBoard">
@@ -262,7 +313,7 @@ function resultsView(positions) {
 		</header>
 		<main>
 			${raceProgress(positions)}
-			<a href="/race">Start a new race</a>
+			<a href="/race" class="button">Start a new race</a>
 		</main>
 	`
 }
@@ -321,42 +372,55 @@ function defaultFetchOpts() {
 
 function getTracks() {
 	// GET request to `${SERVER}/api/tracks`
+	return fetch(`${SERVER}/api/tracks`)
+	.then(tracks => tracks.json())
+	.catch(err => console.log("API Error at getTracks():", err))
 }
 
 function getRacers() {
 	// GET request to `${SERVER}/api/cars`
+	return fetch(`${SERVER}/api/cars`)
+	.then(cars => cars.json())
+	.catch(err => console.log('API Error at getRacers():',err))
 }
 
-function createRace(player_id, track_id) {
+async function createRace(player_id, track_id) {
 	player_id = parseInt(player_id)
 	track_id = parseInt(track_id)
 	const body = { player_id, track_id }
 	
-	return fetch(`${SERVER}/api/races`, {
+	return await fetch(`${SERVER}/api/races`, {
 		method: 'POST',
 		...defaultFetchOpts(),
 		dataType: 'jsonp',
 		body: JSON.stringify(body)
 	})
 	.then(res => res.json())
-	.catch(err => console.log("Problem with createRace request::", err))
+	.catch(err => console.log("Problem with createRace:", err))
 }
 
-function getRace(id) {
+async function getRace(id) {
 	// GET request to `${SERVER}/api/races/${id}`
+	return await fetch(`${SERVER}/api/races/${id}`)
+	.then(data => data.json())
+	.catch(err => console.log('API Error at getRace() request: ', err))
 }
 
-function startRace(id) {
-	return fetch(`${SERVER}/api/races/${id}/start`, {
+async function startRace(id) {
+	return await fetch(`${SERVER}/api/races/${id}/start`, {
 		method: 'POST',
 		...defaultFetchOpts(),
 	})
-	.then(res => res.json())
-	.catch(err => console.log("Problem with getRace request::", err))
+	.catch(err => console.log("API Problem with startRace:", err))
 }
 
-function accelerate(id) {
+async function accelerate(id) {
 	// POST request to `${SERVER}/api/races/${id}/accelerate`
 	// options parameter provided as defaultFetchOpts
 	// no body or datatype needed for this request
+	return await fetch(`${SERVER}/api/races/${id}/accelerate`, {
+		method: 'POST',
+		...defaultFetchOpts(),
+	})
+	.catch(err => console.log("API Problem with accelerate():", err))
 }
